@@ -1,7 +1,8 @@
-# my solutions
+# My solutions
 
-To keep the ball rolling after finishing [Advent of Code](https://adventofcode.com/ "puzzles!!!") 2022, I picked up the cryptopals cryptography challenges.
-For theory I mostly got by reading [Crypto101.io](https://www.crypto101.io/). Below is an introductory summary on these challenges.
+To keep the ball rolling after finishing [Advent of Code](https://adventofcode.com/ "puzzles!!!") 2022, I picked up the [cryptopals cryptography challenges](https://cryptopals.com/).
+I've implemented them in Rust, since that's the language I'm most familiar with at the moment.
+For theory I got quite far just by reading [Crypto101.io](https://www.crypto101.io/). Below is great summary what these challenges are about.
 
 # cryptopals.com
 
