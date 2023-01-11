@@ -1,10 +1,13 @@
-#![allow(unused)]
+use aes::cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit};
+use aes::Aes128;
 use base64::encode;
 use log::debug;
+use std::collections::HashSet;
 use std::{
-    cmp::Ordering::Equal, collections::HashMap, mem, ptr::write_bytes, slice::Chunks,
+    cmp::Ordering::Equal, collections::HashMap,
     str::from_utf8,
 };
+
 mod challenge_data;
 
 fn main() {
@@ -16,12 +19,34 @@ fn main() {
     set_1_c_5();
     set_1_c_6();
     set_1_c_7();
+    set_1_c_8();
+}
+
+fn set_1_c_8() {
+    debug!("Set 1, Challenge 8");
+    let mut suspect: Vec<u8> = vec![];
+    challenge_data::S_1_C_8.lines().for_each(|ciphertext| {
+        let bytes = hex_to_bytes(ciphertext);
+        let chunks: Vec<&[u8]> = bytes.chunks_exact(16).into_iter().collect();
+        let mut set: HashSet<&[u8]> = HashSet::new();
+        for chunk in &chunks {
+            set.insert(chunk);
+        }
+        if set.len() < chunks.len() {
+            suspect = bytes;
+        }
+    });
+    debug!("encrypted with ecb: {:?}", bytes_to_hex(&suspect));
+
+    debug!("");
 }
 
 fn set_1_c_7() {
     debug!("Set 1, Challenge 7");
     let bytes = base64::decode(challenge_data::S_1_C_7.replace('\n', "")).unwrap();
-    
+    let decrypted = decrypt_aes128_ecb(b"YELLOW SUBMARINE", &bytes);
+    print_as_utf8(&decrypted[300..497]);
+    debug!("");
     debug!("");
 }
 
@@ -61,7 +86,7 @@ fn set_1_c_6() {
         //  byte of every block, and a block that is the second byte
         //  of every block, and so on.
         let mut transposed_blocks: Vec<Vec<u8>> = vec![vec![]; keysize];
-        for byte in (0..keysize) {
+        for byte in 0..keysize {
             blocks.iter().for_each(|block| {
                 transposed_blocks[byte].push(block[byte]);
             })
@@ -85,7 +110,8 @@ fn set_1_c_6() {
     let repeat: String = key.chars().cycle().take(bytes.len()).collect();
     let decrypted = xor(&bytes, repeat.as_bytes());
     debug!("");
-    print_as_utf8(&decrypted);
+    print_as_utf8(&decrypted[0..300]);
+    debug!("");
     debug!("");
 }
 
@@ -197,6 +223,22 @@ fn bits(byte: &u8) -> [u8; 8] {
     bits
 }
 
+fn decrypt_aes128_ecb(key: &[u8], bytes: &[u8]) -> Vec<u8> {
+    // The key should be 128 bits (16 bytes) long
+    assert!(key.len() == 16);
+    let key = GenericArray::from_slice(key);
+    // Create the AES-128 cipher
+    let cipher = Aes128::new(key);
+    let blocks = bytes.chunks(16);
+    let mut decrypted: Vec<u8> = vec![];
+    for block in blocks {
+        let mut generic_array = GenericArray::clone_from_slice(block);
+        cipher.decrypt_block(&mut generic_array);
+        decrypted.append(&mut generic_array.to_vec());
+    }
+    decrypted
+}
+
 fn hamming_distance_str_bit_level(s1: &str, s2: &str) -> usize {
     assert_eq!(s1.len(), s2.len());
     s1.as_bytes()
@@ -218,8 +260,10 @@ fn hamming_distance(byte_1: &u8, byte_2: &u8) -> usize {
 }
 
 fn print_as_utf8(bytes: &[u8]) {
-    let s = from_utf8(bytes).unwrap();
-    s.lines().for_each(|l| debug!("{}", l));
+    match from_utf8(bytes) {
+        Ok(s) => s.lines().for_each(|l| debug!("{}", l)),
+        Err(e) => debug!("PROBLEM PARSING AS UTF-8: {}: {:?}", e, bytes),
+    }
 }
 
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
