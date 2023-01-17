@@ -1,28 +1,60 @@
+#![allow(unused)]
+use aes::cipher::BlockEncrypt;
 use aes::cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit};
 use aes::Aes128;
 use base64::encode;
-use log::debug;
+use log::{debug, trace};
 use std::collections::HashSet;
-use std::{
-    cmp::Ordering::Equal, collections::HashMap,
-    str::from_utf8,
-};
+use std::{cmp::Ordering::Equal, collections::HashMap, str::from_utf8};
 
 mod challenge_data;
 
 fn main() {
     env_logger::init();
-    set_1_c_1();
-    set_1_c_2();
-    set_1_c_3();
-    set_1_c_4();
-    set_1_c_5();
-    set_1_c_6();
-    set_1_c_7();
-    set_1_c_8();
+    challenge_1_set_1();
+    challenge_2_set_1();
+    challenge_3_set_1();
+    challenge_4_set_1();
+    challenge_5_set_1();
+    challenge_6_set_1();
+    challenge_7_set_1();
+    challenge_8_set_1();
+
+    challenge_09_set_2();
+    challenge_10_set_2();
 }
 
-fn set_1_c_8() {
+fn challenge_10_set_2() {
+    debug!("Set 2, Challenge 10");
+
+    // verification
+    const BLOCK_SIZE: usize = 16;
+    let example_message = b"SECRET MESSAGE!!";
+    const KEY: &[u8; 16] = b"YELLOW SUBMARINE";
+    const IV: &[u8; 16] = &[b'\x00'; BLOCK_SIZE];
+    let example_padded = &pkcs7_pad(example_message, BLOCK_SIZE);
+    let example_encrypted = encrypt_aes128_cbc(KEY, IV, example_padded);
+    let example_decrypted = decrypt_aes128_cbc(KEY, IV, &example_encrypted);
+    assert_eq!(*example_padded, example_decrypted);
+
+    // actual answer:
+    let bytes = base64::decode(challenge_data::S_2_C_10.replace('\n', "")).unwrap();
+    let decrypted = decrypt_aes128_cbc(KEY, IV, &bytes);
+    print_as_utf8(&decrypted[497..650]);
+    debug!("");
+}
+
+fn challenge_09_set_2() {
+    debug!("Set 2, Challenge 8");
+    let bytes = "YELLOW SUBMARINE".as_bytes();
+    let padded = pkcs7_pad(bytes, 20);
+    debug!("padding YELLOW_SUBMARINE to blocksize 20:");
+    debug!("{:?}", bytes);
+    debug!("{:?}", padded);
+    debug!("");
+}
+
+fn challenge_8_set_1() {
     debug!("Set 1, Challenge 8");
     let mut suspect: Vec<u8> = vec![];
     challenge_data::S_1_C_8.lines().for_each(|ciphertext| {
@@ -41,7 +73,7 @@ fn set_1_c_8() {
     debug!("");
 }
 
-fn set_1_c_7() {
+fn challenge_7_set_1() {
     debug!("Set 1, Challenge 7");
     let bytes = base64::decode(challenge_data::S_1_C_7.replace('\n', "")).unwrap();
     let decrypted = decrypt_aes128_ecb(b"YELLOW SUBMARINE", &bytes);
@@ -51,7 +83,7 @@ fn set_1_c_7() {
 }
 
 /// Break repeating-key XOR
-fn set_1_c_6() {
+fn challenge_6_set_1() {
     debug!("Set 1, Challenge 6");
     let bytes = base64::decode(challenge_data::S_1_C_6.replace('\n', "")).unwrap();
     assert_eq!(
@@ -116,7 +148,7 @@ fn set_1_c_6() {
 }
 
 /// Implement repeating-key XOR
-fn set_1_c_5() {
+fn challenge_5_set_1() {
     debug!("Set 1, Challenge 5");
 
     let stanza: &str = r#"Burning 'em, if you ain't quick and nimble
@@ -131,7 +163,7 @@ I go crazy when I hear a cymbal"#;
 }
 
 /// Detect single-character XOR
-fn set_1_c_4() {
+fn challenge_4_set_1() {
     debug!("Set 1, Challenge 4");
 
     let results: Vec<(usize, u8, Vec<u8>)> = challenge_data::S_1_C_4
@@ -155,7 +187,7 @@ fn set_1_c_4() {
 }
 
 /// Single-byte XOR cipher
-fn set_1_c_3() {
+fn challenge_3_set_1() {
     debug!("Set 1, Challenge 3");
     let h1 = "1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736";
     let b1 = hex_to_bytes(h1);
@@ -176,7 +208,7 @@ fn set_1_c_3() {
 /// This problem illustrates the vulnerability of re-using a secret.
 /// See Crypto101, chapter 5.5: Attacks on “one-time pads”
 /// https://raw.githubusercontent.com/crypto101/crypto101.github.io/master/Crypto101.pdf
-fn set_1_c_2() {
+fn challenge_2_set_1() {
     // Suppose an attacker gets two ciphertexts with the same
     // “one-time” pad. The attacker can then XOR the two ciphertexts,
     // which is also the XOR of the plaintexts:
@@ -199,7 +231,7 @@ fn set_1_c_2() {
 }
 
 /// Convert hex to base64
-fn set_1_c_1() {
+fn challenge_1_set_1() {
     debug!("Set 1, Challenge 1");
     let p = "49276d206b696c6c696e6720796f757220627261696e206c696b65206120706f69736f6e6f7573206d757368726f6f6d";
     let bytes: Vec<u8> = hex_to_bytes(p);
@@ -216,11 +248,26 @@ fn set_1_c_1() {
 
 fn bits(byte: &u8) -> [u8; 8] {
     let mut bits: [u8; 8] = [0; 8];
-
     (0..8).for_each(|i| {
         bits[i] = (byte >> i) & 1;
     });
     bits
+}
+
+fn encrypt_aes128_ecb(key: &[u8], bytes: &[u8]) -> Vec<u8> {
+    // The key should be 128 bits (16 bytes) long
+    assert!(key.len() == 16);
+    let key = GenericArray::from_slice(key);
+    // Create the AES-128 cipher
+    let cipher = Aes128::new(key);
+    let blocks = bytes.chunks(16);
+    let mut encrypted: Vec<u8> = vec![];
+    for block in blocks {
+        let mut generic_array = GenericArray::clone_from_slice(block);
+        cipher.encrypt_block(&mut generic_array);
+        encrypted.append(&mut generic_array.to_vec());
+    }
+    encrypted
 }
 
 fn decrypt_aes128_ecb(key: &[u8], bytes: &[u8]) -> Vec<u8> {
@@ -235,6 +282,48 @@ fn decrypt_aes128_ecb(key: &[u8], bytes: &[u8]) -> Vec<u8> {
         let mut generic_array = GenericArray::clone_from_slice(block);
         cipher.decrypt_block(&mut generic_array);
         decrypted.append(&mut generic_array.to_vec());
+    }
+    decrypted
+}
+
+fn encrypt_aes128_cbc(key: &[u8], init_vector: &[u8], bytes: &[u8]) -> Vec<u8> {
+    // The key should be 128 bits (16 bytes) long
+    assert!(key.len() == 16 && init_vector.len() == 16);
+
+    let key = GenericArray::from_slice(key);
+    // Create the AES-128 cipher
+    let cipher = Aes128::new(key);
+
+    let blocks = bytes.chunks(16);
+    let mut encrypted: Vec<u8> = vec![];
+    for (i, block) in blocks.enumerate() {
+        // XOR the plaintext block with the previous ciphertext block
+        // (or the IV if it is the first block)
+        let mut chained: Vec<u8> = vec![];
+        if i == 0 {
+            chained = xor(init_vector, block);
+        } else {
+            chained = xor(&encrypted[(i - 1) * 16..i * 16], block);
+        }
+        let mut generic_array = GenericArray::clone_from_slice(&chained);
+        cipher.encrypt_block(&mut generic_array);
+        encrypted.append(&mut generic_array.to_vec());
+    }
+    encrypted
+}
+
+/// Manual implementation of cbc decryption, using ecb decryption,
+/// then xorring with the previous block
+fn decrypt_aes128_cbc(key: &[u8], init_vector: &[u8], bytes: &[u8]) -> Vec<u8> {
+    // The key should be 128 bits (16 bytes) long
+    assert!(key.len() == 16 && init_vector.len() == 16);
+    let mut decrypted = vec![];
+    let mut prev_block = init_vector;
+    for block in bytes.chunks(16) {
+        let decrypted_block = decrypt_aes128_ecb(key, block);
+        let xor_prev = xor(prev_block, &decrypted_block);
+        prev_block = block;
+        decrypted.extend(xor_prev);
     }
     decrypted
 }
@@ -286,6 +375,10 @@ fn xor(bytes: &[u8], bytes_2: &[u8]) -> Vec<u8> {
     bytes.iter().zip(bytes_2).map(|(a, b)| a ^ b).collect()
 }
 
+fn xor_byte(byte: u8, byte_2: u8) -> u8 {
+    byte ^ byte_2
+}
+
 /// XORs a string with every possible character that fits in 1 byte;
 /// Returns a tuple of (score, xor_char, message)
 fn find_english_for_single_char_xor(bytes: &[u8]) -> (usize, u8, Vec<u8>) {
@@ -303,4 +396,40 @@ fn find_english_for_single_char_xor(bytes: &[u8]) -> (usize, u8, Vec<u8>) {
         }
     }
     best_english
+}
+
+/// Each padding byte has a value equal to the total number of padding
+/// bytes that are added. For example, if 6 padding bytes must be
+/// added, each of those bytes will have the value 0x06.
+fn pkcs7_pad(bytes: &[u8], block_size: usize) -> Vec<u8> {
+    let mut padded = bytes.to_owned();
+    if bytes.len() == block_size {
+        padded.append(&mut vec![block_size as u8; block_size]);
+        return padded;
+    }
+    let pad = block_size - (bytes.len().rem_euclid(block_size));
+    padded.append(&mut vec![pad as u8; pad]);
+    padded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_pkcs7_pad() {
+        let fits_in_blocksize = pkcs7_pad(b"YELLOW SUBMARINE", 20);
+        assert_eq!(fits_in_blocksize, b"YELLOW SUBMARINE\x04\x04\x04\x04");
+        let same_length_blocksize = pkcs7_pad(b"YELLOW SUBMARINE", 16);
+        assert_eq!(
+            same_length_blocksize,
+            b"YELLOW SUBMARINE\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
+        );
+        let longer_than_blocksize = pkcs7_pad(b"YELLOW SUBMARINE", 8);
+        assert_eq!(
+            longer_than_blocksize,
+            b"YELLOW SUBMARINE\x08\x08\x08\x08\x08\x08\x08\x08"
+        );
+        let zero_length = pkcs7_pad(b"", 8);
+        assert_eq!(zero_length, b"\x08\x08\x08\x08\x08\x08\x08\x08");
+    }
 }
