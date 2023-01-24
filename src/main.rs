@@ -4,6 +4,8 @@ use aes::cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit};
 use aes::Aes128;
 use base64::encode;
 use log::{debug, trace};
+use rand::distributions::{Standard, Uniform};
+use rand::{Rng, RngCore};
 use std::collections::HashSet;
 use std::{cmp::Ordering::Equal, collections::HashMap, str::from_utf8};
 
@@ -11,17 +13,84 @@ mod challenge_data;
 
 fn main() {
     env_logger::init();
-    challenge_1_set_1();
-    challenge_2_set_1();
-    challenge_3_set_1();
-    challenge_4_set_1();
-    challenge_5_set_1();
-    challenge_6_set_1();
-    challenge_7_set_1();
-    challenge_8_set_1();
+    // challenge_1_set_1();
+    // challenge_2_set_1();
+    // challenge_3_set_1();
+    // challenge_4_set_1();
+    // challenge_5_set_1();
+    // challenge_6_set_1();
+    // challenge_7_set_1();
+    // challenge_8_set_1();
 
     challenge_09_set_2();
     challenge_10_set_2();
+    challenge_11_set_2();
+    // challenge_12_set_2();
+}
+
+// fn challenge_12_set_2() {
+//     debug!("Set 2, Challenge 11");
+
+//     encryption_oracle_ecb_consistent_key("YELLOW SUBMARINEYELLOW SUBMARINEYELLOW SUBMARINE");
+
+//     debug!("");
+// }
+
+fn challenge_11_set_2() {
+    debug!("Set 2, Challenge 11");
+
+    // repeating input that is 3 times the block length, so that the 5
+    // to 10 random bytes on either side can't fully miss-align the
+    // plain text completely
+    encryption_oracle("YELLOW SUBMARINEYELLOW SUBMARINEYELLOW SUBMARINE");
+
+    debug!("");
+}
+
+fn encryption_oracle(input: &str) {
+    let mut rng = rand::thread_rng();
+
+    let mut base = vec![0; rng.gen_range(5..=10)];
+    let mut suffix = vec![0; rng.gen_range(5..=10)];
+    rng.fill_bytes(&mut base);
+    rng.fill_bytes(&mut suffix);
+
+    base.append(&mut input.as_bytes().to_vec());
+    base.append(&mut suffix);
+
+    let random_aes_key = random_aes_key();
+
+    let encrypted = match rng.gen_range(1..=2) {
+        1 => {
+            // ecb encrypt
+            debug!("ECB encrypting...");
+            encrypt_aes128_ecb(&random_aes_key, &base)
+        }
+        2 => {
+            // cbc encrypt
+            let mut random_iv = vec![b'\x00'; 16];
+            rng.fill_bytes(&mut random_iv);
+            encrypt_aes128_cbc(&random_aes_key, &random_iv, &base)
+        }
+        _ => {
+            panic!();
+        }
+    };
+    // debug!("ENCRYPTED {:?}", encrypted);
+    if detect_ecb(&encrypted) {
+        debug!("ECB ENCRYPTED");
+    } else {
+        debug!("CBC ENCRYPTED");
+    }
+}
+
+fn random_aes_key() -> [u8; 16] {
+    let mut rng = rand::thread_rng();
+    (0..16)
+        .map(|_| rng.gen())
+        .collect::<Vec<u8>>()
+        .try_into()
+        .unwrap()
 }
 
 fn challenge_10_set_2() {
@@ -32,10 +101,9 @@ fn challenge_10_set_2() {
     let example_message = b"SECRET MESSAGE!!";
     const KEY: &[u8; 16] = b"YELLOW SUBMARINE";
     const IV: &[u8; 16] = &[b'\x00'; BLOCK_SIZE];
-    let example_padded = &pkcs7_pad(example_message, BLOCK_SIZE);
-    let example_encrypted = encrypt_aes128_cbc(KEY, IV, example_padded);
+    let example_encrypted = encrypt_aes128_cbc(KEY, IV, example_message);
     let example_decrypted = decrypt_aes128_cbc(KEY, IV, &example_encrypted);
-    assert_eq!(*example_padded, example_decrypted);
+    assert_eq!(example_message.to_vec(), example_decrypted);
 
     // actual answer:
     let bytes = base64::decode(challenge_data::S_2_C_10.replace('\n', "")).unwrap();
@@ -47,8 +115,9 @@ fn challenge_10_set_2() {
 fn challenge_09_set_2() {
     debug!("Set 2, Challenge 8");
     let bytes = "YELLOW SUBMARINE".as_bytes();
-    let padded = pkcs7_pad(bytes, 20);
     debug!("padding YELLOW_SUBMARINE to blocksize 20:");
+    let padded = pkcs7_pad(bytes, 20);
+    assert!(padded.len() == 20);
     debug!("{:?}", bytes);
     debug!("{:?}", padded);
     debug!("");
@@ -56,20 +125,11 @@ fn challenge_09_set_2() {
 
 fn challenge_8_set_1() {
     debug!("Set 1, Challenge 8");
-    let mut suspect: Vec<u8> = vec![];
     challenge_data::S_1_C_8.lines().for_each(|ciphertext| {
-        let bytes = hex_to_bytes(ciphertext);
-        let chunks: Vec<&[u8]> = bytes.chunks_exact(16).into_iter().collect();
-        let mut set: HashSet<&[u8]> = HashSet::new();
-        for chunk in &chunks {
-            set.insert(chunk);
-        }
-        if set.len() < chunks.len() {
-            suspect = bytes;
-        }
+        if detect_ecb_hex(ciphertext) {
+            debug!("encrypted with ecb: {:?}", ciphertext);
+        };
     });
-    debug!("encrypted with ecb: {:?}", bytes_to_hex(&suspect));
-
     debug!("");
 }
 
@@ -251,6 +311,7 @@ fn bits(byte: &u8) -> [u8; 8] {
     (0..8).for_each(|i| {
         bits[i] = (byte >> i) & 1;
     });
+    bits.reverse();
     bits
 }
 
@@ -260,7 +321,8 @@ fn encrypt_aes128_ecb(key: &[u8], bytes: &[u8]) -> Vec<u8> {
     let key = GenericArray::from_slice(key);
     // Create the AES-128 cipher
     let cipher = Aes128::new(key);
-    let blocks = bytes.chunks(16);
+    let padded = pkcs7_pad(bytes, 16);
+    let blocks = padded.chunks(16);
     let mut encrypted: Vec<u8> = vec![];
     for block in blocks {
         let mut generic_array = GenericArray::clone_from_slice(block);
@@ -289,12 +351,14 @@ fn decrypt_aes128_ecb(key: &[u8], bytes: &[u8]) -> Vec<u8> {
 fn encrypt_aes128_cbc(key: &[u8], init_vector: &[u8], bytes: &[u8]) -> Vec<u8> {
     // The key should be 128 bits (16 bytes) long
     assert!(key.len() == 16 && init_vector.len() == 16);
-
     let key = GenericArray::from_slice(key);
     // Create the AES-128 cipher
     let cipher = Aes128::new(key);
 
-    let blocks = bytes.chunks(16);
+    // TODO: DOING: trying to put the pkcs7 padding function in here somewhere
+
+    let padded = pkcs7_pad(bytes, 16);
+    let blocks = padded.chunks(16);
     let mut encrypted: Vec<u8> = vec![];
     for (i, block) in blocks.enumerate() {
         // XOR the plaintext block with the previous ciphertext block
@@ -325,7 +389,9 @@ fn decrypt_aes128_cbc(key: &[u8], init_vector: &[u8], bytes: &[u8]) -> Vec<u8> {
         prev_block = block;
         decrypted.extend(xor_prev);
     }
-    decrypted
+    let pad_count = decrypted.last().unwrap();
+    debug!("PAD COUNT {:?}", pad_count);
+    decrypted[0..(decrypted.len() - *pad_count as usize)].to_vec()
 }
 
 fn hamming_distance_str_bit_level(s1: &str, s2: &str) -> usize {
@@ -398,6 +464,20 @@ fn find_english_for_single_char_xor(bytes: &[u8]) -> (usize, u8, Vec<u8>) {
     best_english
 }
 
+fn detect_ecb_hex(ciphertext: &str) -> bool {
+    let bytes = hex_to_bytes(ciphertext);
+    detect_ecb(&bytes)
+}
+
+fn detect_ecb(bytes: &[u8]) -> bool {
+    let chunks: Vec<&[u8]> = bytes.chunks_exact(16).into_iter().collect();
+    let mut set: HashSet<&[u8]> = HashSet::new();
+    for chunk in &chunks {
+        set.insert(chunk);
+    }
+    set.len() < chunks.len()
+}
+
 /// Each padding byte has a value equal to the total number of padding
 /// bytes that are added. For example, if 6 padding bytes must be
 /// added, each of those bytes will have the value 0x06.
@@ -415,6 +495,7 @@ fn pkcs7_pad(bytes: &[u8], block_size: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_pkcs7_pad() {
         let fits_in_blocksize = pkcs7_pad(b"YELLOW SUBMARINE", 20);
@@ -431,5 +512,11 @@ mod tests {
         );
         let zero_length = pkcs7_pad(b"", 8);
         assert_eq!(zero_length, b"\x08\x08\x08\x08\x08\x08\x08\x08");
+    }
+
+    #[test]
+    fn test_bits() {
+        assert_eq!(bits(&5), [0, 0, 0, 0, 0, 1, 0, 1]);
+        assert_eq!(bits(&89), [0, 1, 0, 1, 1, 0, 0, 1]);
     }
 }
